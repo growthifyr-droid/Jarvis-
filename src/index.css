@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-app: #060709;
+    --bg-surface: #0b0d11;
+    --bg-surface-elevated: #11141b;
+    --bg-surface-subtle: #080a0d;
+    --border-subtle: #171b22;
+    --border-strong: #222833;
+    --text-primary: #f0f3f6;
+    --text-secondary: #8c96a5;
+    --text-muted: #5a6575;
+    --accent-teal: #00f2a1;
+    --accent-cyan: #38bdf8;
+    --chat-panel-width: 320px;
+    --telemetry-panel-width: 290px;
+  }
+
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    overflow: hidden;
+    user-select: none;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Custom minimal scrollbar for scrollable panels */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #060709;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #181d26;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #252c38;
+}
