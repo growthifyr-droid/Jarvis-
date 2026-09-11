@@ -23,6 +23,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // electron/main/index.ts
 var import_electron2 = require("electron");
+var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
 
 // electron/main/config.ts
@@ -33,7 +34,7 @@ var package_default = {
   name: "jarvis-desktop",
   productName: "JARVIS",
   private: true,
-  version: "1.0.2",
+  version: "1.0.3",
   type: "module",
   main: "dist-electron/main.cjs",
   scripts: {
@@ -379,6 +380,19 @@ function createWindow() {
   });
   const updater = UpdaterService.getInstance();
   updater.setMainWindow(win);
+  win.webContents.openDevTools({ mode: "detach" });
+  win.webContents.on("did-finish-load", () => {
+    console.log("Renderer loaded successfully");
+  });
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer Log Level ${level}] ${message} (${sourceId}:${line})`);
+  });
+  win.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Render process gone:", details.reason);
+  });
+  const rendererPath = import_path.default.join(__dirname, "../dist/index.html");
+  console.log("Resolved renderer path:", rendererPath);
+  console.log("Renderer file exists:", import_fs.default.existsSync(rendererPath));
   let hasRetried = false;
   win.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error(`Page failed to load: ${errorDescription} (code: ${errorCode})`);
@@ -386,7 +400,7 @@ function createWindow() {
       hasRetried = true;
       setTimeout(() => {
         if (!win.isDestroyed()) {
-          win.loadFile(import_path.default.join(__dirname, "../dist/index.html"));
+          win.loadFile(rendererPath);
         }
       }, 1e3);
     } else {
@@ -427,7 +441,7 @@ function createWindow() {
   } else if (isDev && !import_electron2.app.isPackaged) {
     win.loadURL("http://localhost:3000");
   } else {
-    win.loadFile(import_path.default.join(__dirname, "../dist/index.html"));
+    win.loadFile(rendererPath);
   }
   win.once("ready-to-show", () => {
     win.show();

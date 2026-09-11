@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import { ConfigService } from './config';
 import { UpdaterService } from './services/updater/updater.service';
@@ -48,6 +49,26 @@ function createWindow(): BrowserWindow {
   const updater = UpdaterService.getInstance();
   updater.setMainWindow(win);
 
+  // Temporary diagnostic: Open detached DevTools to inspect renderer
+  win.webContents.openDevTools({ mode: 'detach' });
+
+  // Log renderer lifecycle events
+  win.webContents.on('did-finish-load', () => {
+    console.log('Renderer loaded successfully');
+  });
+
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer Log Level ${level}] ${message} (${sourceId}:${line})`);
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Render process gone:', details.reason);
+  });
+
+  const rendererPath = path.join(__dirname, '../dist/index.html');
+  console.log('Resolved renderer path:', rendererPath);
+  console.log('Renderer file exists:', fs.existsSync(rendererPath));
+
   // Load failure handling with retry and inline error page fallback
   let hasRetried = false;
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
@@ -56,7 +77,7 @@ function createWindow(): BrowserWindow {
       hasRetried = true;
       setTimeout(() => {
         if (!win.isDestroyed()) {
-          win.loadFile(path.join(__dirname, '../dist/index.html'));
+          win.loadFile(rendererPath);
         }
       }, 1000);
     } else {
@@ -99,7 +120,7 @@ function createWindow(): BrowserWindow {
   } else if (isDev && !app.isPackaged) {
     win.loadURL('http://localhost:3000');
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(rendererPath);
   }
 
   win.once('ready-to-show', () => {
