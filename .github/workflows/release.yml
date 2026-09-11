@@ -49,25 +49,68 @@ jobs:
           }
 
       # ==========================================
-      # 4. INSTALL WINDOWS NATIVE BINARIES
+      # 4. INSTALL WINDOWS NATIVE BINARIES (FORCED)
       # ==========================================
+      # npm ka optional-dependencies bug lock file ki wajah se
+      # Windows native binaries skip kar deta hai aur "up to date"
+      # dikha ke kuch install nahi karta. --force npm ko majboor
+      # karta hai ke packages sach mein download aur install ho.
       - name: Install Windows native binaries
         shell: pwsh
         run: |
-          Write-Host "Installing Windows native binaries..."
+          Write-Host "Force-installing Windows native binaries..."
 
-          npm install --no-save `
+          npm install --no-save --force `
             @tailwindcss/oxide-win32-x64-msvc `
             lightningcss-win32-x64-msvc `
             @rollup/rollup-win32-x64-msvc `
             @esbuild/win32-x64
 
-          Write-Host "Verifying native binaries..."
+          Write-Host ""
+          Write-Host "Verifying native binaries (folder check)..."
 
-          node -e "require('@tailwindcss/oxide-win32-x64-msvc'); console.log('Tailwind Oxide Windows OK')"
-          node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK')"
-          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK')"
-          node -e "require('@esbuild/win32-x64'); console.log('ESBuild Windows OK')"
+          $packages = @(
+            "@tailwindcss/oxide-win32-x64-msvc",
+            "lightningcss-win32-x64-msvc",
+            "@rollup/rollup-win32-x64-msvc",
+            "@esbuild/win32-x64"
+          )
+
+          $allOk = $true
+
+          foreach ($pkg in $packages) {
+            $pkgPath = Join-Path "node_modules" ($pkg -replace "/", [IO.Path]::DirectorySeparatorChar)
+            if (Test-Path $pkgPath) {
+              Write-Host "OK: $pkg found at $pkgPath"
+            } else {
+              Write-Host "MISSING: $pkg not found in node_modules"
+              $allOk = $false
+            }
+          }
+
+          if (-not $allOk) {
+            Write-Host ""
+            Write-Host "Some native binaries are still missing. Retrying with clean install..."
+
+            foreach ($pkg in $packages) {
+              $pkgPath = Join-Path "node_modules" ($pkg -replace "/", [IO.Path]::DirectorySeparatorChar)
+              if (-not (Test-Path $pkgPath)) {
+                Write-Host "Retrying install for: $pkg"
+                npm install --no-save --force $pkg
+              }
+            }
+
+            foreach ($pkg in $packages) {
+              $pkgPath = Join-Path "node_modules" ($pkg -replace "/", [IO.Path]::DirectorySeparatorChar)
+              if (-not (Test-Path $pkgPath)) {
+                Write-Error "FATAL: $pkg could not be installed after retry."
+                exit 1
+              }
+            }
+          }
+
+          Write-Host ""
+          Write-Host "All Windows native binaries verified successfully."
 
       # ==========================================
       # 5. VALIDATE PACKAGE
