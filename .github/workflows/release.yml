@@ -25,11 +25,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
 
       - name: Install dependencies
-        run: npm ci
+        shell: pwsh
+        run: |
+          if (Test-Path "package-lock.json") {
+            Write-Host "Found package-lock.json, running npm ci..."
+            npm ci
+          } else {
+            Write-Host "package-lock.json not found, running npm install..."
+            npm install
+          }
 
       - name: Validate package
         shell: pwsh
