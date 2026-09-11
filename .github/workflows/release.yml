@@ -17,31 +17,62 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # ==========================================
+      # 1. CHECKOUT
+      # ==========================================
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # ==========================================
+      # 2. SETUP NODE
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Install dependencies and native Windows toolchains
+      # ==========================================
+      # 3. INSTALL DEPENDENCIES
+      # ==========================================
+      - name: Install dependencies
         shell: pwsh
         run: |
-          Write-Host "Installing dependencies..."
-          npm install
+          Write-Host "Installing project dependencies..."
 
-          Write-Host "Installing Windows-specific native binaries (Tailwind Oxide, LightningCSS, Rollup, ESBuild)..."
-          npm install --no-save @tailwindcss/oxide-win32-x64-msvc lightningcss-win32-x64-msvc @rollup/rollup-win32-x64-msvc @esbuild/win32-x64
+          if (Test-Path "package-lock.json") {
+            npm ci
+          } else {
+            npm install
+          }
 
-          Write-Host "Verifying toolchains..."
-          node -e "require('@tailwindcss/oxide-win32-x64-msvc'); console.log('Tailwind Oxide Windows OK');"
-          node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK');"
-          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK');"
+      # ==========================================
+      # 4. INSTALL WINDOWS NATIVE BINARIES
+      # ==========================================
+      - name: Install Windows native binaries
+        shell: pwsh
+        run: |
+          Write-Host "Installing Windows native binaries..."
 
-      - name: Validate package version
+          npm install --no-save `
+            @tailwindcss/oxide-win32-x64-msvc `
+            lightningcss-win32-x64-msvc `
+            @rollup/rollup-win32-x64-msvc `
+            @esbuild/win32-x64
+
+          Write-Host "Verifying native binaries..."
+
+          node -e "require('@tailwindcss/oxide-win32-x64-msvc'); console.log('Tailwind Oxide Windows OK')"
+          node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK')"
+          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK')"
+          node -e "require('@esbuild/win32-x64'); console.log('ESBuild Windows OK')"
+
+      # ==========================================
+      # 5. VALIDATE PACKAGE
+      # ==========================================
+      - name: Validate package
         shell: pwsh
         run: |
           if (-not (Test-Path "package.json")) {
@@ -56,13 +87,12 @@ jobs:
             exit 1
           }
 
-          Write-Host "Target Application Version: $version"
+          Write-Host "Jarvis version: $version"
 
-      - name: Build Windows installer
-        shell: pwsh
-        run: npm run release
-
-      - name: Publish GitHub Release
+      # ==========================================
+      # 6. CHECK DUPLICATE RELEASE
+      # ==========================================
+      - name: Check release version
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,31 +100,97 @@ jobs:
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
 
-          Write-Host "Locating release assets in ./release directory..."
-          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } | Select-Object -ExpandProperty FullName
+          Write-Host "Checking whether release $tag already exists..."
 
-          if (-not $files) {
-            Write-Error "No release artifacts found in release directory."
+          gh release view $tag --repo "${{ github.repository }}" 2>$null
+
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "Release $tag already exists."
+            Write-Error "Increase package.json version before pushing another release."
             exit 1
           }
 
-          Write-Host "Found artifacts to upload:"
-          $files | ForEach-Object { Write-Host " - $_" }
+          Write-Host "Release $tag does not exist. Continuing..."
 
-          # Check if release tag already exists
-          $exists = $false
-          $res = gh release view $tag --repo "${{ github.repository }}" 2>$null
-          if ($LASTEXITCODE -eq 0 -and $res) {
-            $exists = $true
+      # ==========================================
+      # 7. BUILD + PUBLISH TO GITHUB
+      # ==========================================
+      - name: Build and publish Windows release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Starting production build..."
+
+          npm run build
+
+          Write-Host "Building Windows installer and publishing GitHub release..."
+
+          npx electron-builder --win --publish always
+
+      # ==========================================
+      # 8. VERIFY RELEASE ARTIFACTS
+      # ==========================================
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "release")) {
+            Write-Error "Release directory was not created."
+            exit 1
           }
-          $global:LASTEXITCODE = 0
 
-          if ($exists) {
-            Write-Host "Release $tag already exists on GitHub. Updating and overwriting release assets..."
-            gh release upload $tag $files --repo "${{ github.repository }}" --clobber
-            Write-Host "Existing release $tag updated successfully with new assets!"
+          Write-Host ""
+          Write-Host "Release artifacts:"
+          Get-ChildItem -Path "release" -File |
+            Select-Object Name, Length |
+            Format-Table -AutoSize
+
+          $exe = Get-ChildItem -Path "release" -Filter "*.exe" -File
+
+          if (-not $exe) {
+            Write-Error "Windows .exe installer was not generated."
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "Windows installer found:"
+          $exe | ForEach-Object {
+            Write-Host " - $($_.FullName)"
+          }
+
+          $latestYml = Get-ChildItem -Path "release" -Filter "latest.yml" -File
+
+          if (-not $latestYml) {
+            Write-Error "latest.yml was not generated. Auto-update metadata is missing."
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "Auto-update metadata found:"
+          Write-Host " - $($latestYml.FullName)"
+
+          $blockmap = Get-ChildItem -Path "release" -Filter "*.blockmap" -File
+
+          if (-not $blockmap) {
+            Write-Warning "No .blockmap file found. Verify whether the configured installer/update strategy requires it."
           } else {
-            Write-Host "Creating new GitHub release for $tag..."
-            gh release create $tag $files --repo "${{ github.repository }}" --title "JARVIS $tag" --generate-notes --target "${{ github.sha }}"
-            Write-Host "New release $tag published successfully to GitHub!"
+            Write-Host ""
+            Write-Host "Blockmap found:"
+            $blockmap | ForEach-Object {
+              Write-Host " - $($_.FullName)"
+            }
           }
+
+      # ==========================================
+      # 9. FINAL STATUS
+      # ==========================================
+      - name: Release completed
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "JARVIS RELEASE SUCCESSFUL"
+          Write-Host "Version: $version"
+          Write-Host "=========================================="
