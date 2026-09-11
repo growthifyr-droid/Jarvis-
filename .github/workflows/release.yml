@@ -27,20 +27,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
+      - name: Install dependencies and native Windows binaries
         shell: pwsh
         run: |
           Write-Host "Installing dependencies with optional native packages..."
           npm install --include=optional
-          
-          # Ensure Windows Rollup native bindings are present for Vite build
-          try {
-            node -e "require('@rollup/rollup-win32-x64-msvc')"
-            Write-Host "Rollup Windows native bindings verified."
-          } catch {
-            Write-Host "Installing @rollup/rollup-win32-x64-msvc directly..."
-            npm install --no-save @rollup/rollup-win32-x64-msvc
-          }
+
+          Write-Host "Ensuring Windows native toolchains for Rollup, LightningCSS, and ESBuild..."
+          npm install --no-save @rollup/rollup-win32-x64-msvc lightningcss-win32-x64-msvc @esbuild/win32-x64
+
+          Write-Host "Verifying toolchains..."
+          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK');"
+          node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK');"
 
       - name: Validate package
         shell: pwsh
