@@ -23,8 +23,3 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: JARVIS
-
-publish:
-  provider: github
-  releaseType: release
-  publishAutoUpdate: true

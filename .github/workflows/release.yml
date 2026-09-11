@@ -41,7 +41,7 @@ jobs:
           node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK');"
           node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK');"
 
-      - name: Validate package
+      - name: Validate package version
         shell: pwsh
         run: |
           if (-not (Test-Path "package.json")) {
@@ -58,7 +58,7 @@ jobs:
 
           Write-Host "Application version: $version"
 
-      - name: Validate version is not already released
+      - name: Check for existing release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,25 +72,39 @@ jobs:
             $exists = $true
           }
 
-          # Explicitly clear LASTEXITCODE so pwsh does not treat gh 404 as step failure
+          # Reset exit code
           $global:LASTEXITCODE = 0
 
           if ($exists) {
-            Write-Error "Release $tag already exists on GitHub. Please update the version in package.json before pushing."
+            Write-Error "Release $tag already exists on GitHub. Please bump the version in package.json before releasing."
             exit 1
           }
 
-          Write-Host "Version validation passed: $tag is ready for release."
+          Write-Host "Version validation passed: $tag is ready for build."
           exit 0
 
-      - name: Build and publish Windows release
+      - name: Build Windows installer
+        shell: pwsh
+        run: npm run release
+
+      - name: Publish GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
-
-      - name: Show build result
-        shell: pwsh
         run: |
-          Write-Host "Jarvis release workflow completed successfully."
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+
+          Write-Host "Locating release assets..."
+          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } | Select-Object -ExpandProperty FullName
+
+          if (-not $files) {
+            Write-Error "No release artifacts found in release directory."
+            exit 1
+          }
+
+          Write-Host "Uploading release assets for $tag :"
+          $files | ForEach-Object { Write-Host " - $_" }
+
+          gh release create $tag $files --title "JARVIS $tag" --generate-notes --target "${{ github.sha }}"
+          Write-Host "JARVIS $tag released successfully to GitHub!"
