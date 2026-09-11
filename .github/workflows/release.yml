@@ -63,21 +63,31 @@ jobs:
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
 
-          gh release view $tag --repo "${{ github.repository }}" 2>$null
+          $exists = $false
+          $res = gh api "repos/${{ github.repository }}/releases/tags/$tag" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $res) {
+            $exists = $true
+          }
 
-          if ($LASTEXITCODE -eq 0) {
-            Write-Error "Release $tag already exists. Increase package.json version before pushing."
+          # Explicitly clear LASTEXITCODE so pwsh does not treat gh 404 as step failure
+          $global:LASTEXITCODE = 0
+
+          if ($exists) {
+            Write-Error "Release $tag already exists on GitHub. Please update the version in package.json before pushing."
             exit 1
           }
 
-          Write-Host "No existing release found for $tag."
+          Write-Host "Version validation passed: $tag is ready for release."
+          exit 0
 
       - name: Build and publish Windows release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
 
       - name: Show build result
         shell: pwsh
         run: |
-          Write-Host "Jarvis release workflow completed."
+          Write-Host "Jarvis release workflow completed successfully."
