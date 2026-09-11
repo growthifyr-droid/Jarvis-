@@ -51,10 +51,6 @@ jobs:
       # ==========================================
       # 4. INSTALL WINDOWS NATIVE BINARIES (FORCED)
       # ==========================================
-      # npm ka optional-dependencies bug lock file ki wajah se
-      # Windows native binaries skip kar deta hai aur "up to date"
-      # dikha ke kuch install nahi karta. --force npm ko majboor
-      # karta hai ke packages sach mein download aur install ho.
       - name: Install Windows native binaries
         shell: pwsh
         run: |
@@ -133,27 +129,56 @@ jobs:
           Write-Host "Jarvis version: $version"
 
       # ==========================================
-      # 6. CHECK DUPLICATE RELEASE
+      # 6. RESOLVE VERSION (AUTO-BUMP IF RELEASE EXISTS)
       # ==========================================
-      - name: Check release version
+      # Agar package.json wala version pehle se release ho chuka hai
+      # to fail hone ke bajaye agla free patch version khud nikal lo
+      # (v1.0.1 exists -> v1.0.2 -> v1.0.3 ...) aur package.json ko
+      # sirf is build ke liye update kar do.
+      - name: Resolve release version
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = node -p "require('./package.json').version"
+          Write-Host "package.json version: $version"
+
+          Write-Host "Fetching existing release tags..."
+          $existingTags = gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName --jq ".[].tagName" 2>$null
+          if ($null -eq $existingTags) { $existingTags = @() }
+
           $tag = "v$version"
 
-          Write-Host "Checking whether release $tag already exists..."
+          if ($existingTags -contains $tag) {
+            Write-Host "Release $tag already exists. Auto-bumping to next available version..."
 
-          gh release view $tag --repo "${{ github.repository }}" 2>$null
+            $parts = $version.Split('.')
+            $major = [int]$parts[0]
+            $minor = [int]$parts[1]
+            $patch = [int]$parts[2]
 
-          if ($LASTEXITCODE -eq 0) {
-            Write-Error "Release $tag already exists."
-            Write-Error "Increase package.json version before pushing another release."
-            exit 1
+            do {
+              $patch++
+              $newVersion = "$major.$minor.$patch"
+              $tag = "v$newVersion"
+            } while ($existingTags -contains $tag)
+
+            Write-Host "Next available version: $newVersion ($tag)"
+
+            npm version $newVersion --no-git-tag-version --allow-same-version
+
+            Write-Host "package.json updated to $newVersion for this build."
+          } else {
+            Write-Host "Release $tag does not exist. Continuing with version $version."
           }
 
-          Write-Host "Release $tag does not exist. Continuing..."
+          $finalVersion = node -p "require('./package.json').version"
+          Write-Host ""
+          Write-Host "Final build version: $finalVersion"
+
+          # IMPORTANT: gh commands non-zero exit code chhod dete hain
+          # jo pwsh step ko fail kar deta hai. Reset karo.
+          $global:LASTEXITCODE = 0
 
       # ==========================================
       # 7. BUILD + PUBLISH TO GITHUB
