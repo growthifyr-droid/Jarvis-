@@ -27,18 +27,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies and native Windows binaries
+      - name: Install dependencies and native Windows toolchains
         shell: pwsh
         run: |
-          Write-Host "Installing dependencies with optional native packages..."
-          npm install --include=optional
+          Write-Host "Installing dependencies..."
+          npm install
 
-          Write-Host "Ensuring Windows native toolchains for Rollup, LightningCSS, and ESBuild..."
-          npm install --no-save @rollup/rollup-win32-x64-msvc lightningcss-win32-x64-msvc @esbuild/win32-x64
+          Write-Host "Installing Windows-specific native binaries (Tailwind Oxide, LightningCSS, Rollup, ESBuild)..."
+          npm install --no-save @tailwindcss/oxide-win32-x64-msvc lightningcss-win32-x64-msvc @rollup/rollup-win32-x64-msvc @esbuild/win32-x64
 
           Write-Host "Verifying toolchains..."
-          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK');"
+          node -e "require('@tailwindcss/oxide-win32-x64-msvc'); console.log('Tailwind Oxide Windows OK');"
           node -e "require('lightningcss-win32-x64-msvc'); console.log('LightningCSS Windows OK');"
+          node -e "require('@rollup/rollup-win32-x64-msvc'); console.log('Rollup Windows OK');"
 
       - name: Validate package
         shell: pwsh
