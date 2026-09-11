@@ -129,12 +129,10 @@ jobs:
           Write-Host "Jarvis version: $version"
 
       # ==========================================
-      # 6. RESOLVE VERSION (AUTO-BUMP IF RELEASE EXISTS)
+      # 6. RESOLVE VERSION (AUTO-BUMP, BOTH TAG FORMATS)
       # ==========================================
-      # Agar package.json wala version pehle se release ho chuka hai
-      # to fail hone ke bajaye agla free patch version khud nikal lo
-      # (v1.0.1 exists -> v1.0.2 -> v1.0.3 ...) aur package.json ko
-      # sirf is build ke liye update kar do.
+      # electron-builder kabhi "v1.0.1" aur kabhi "1.0.1" tag banata hai
+      # (config pe depend karta hai). Isliye DONO formats check karo.
       - name: Resolve release version
         shell: pwsh
         env:
@@ -143,14 +141,19 @@ jobs:
           $version = node -p "require('./package.json').version"
           Write-Host "package.json version: $version"
 
-          Write-Host "Fetching existing release tags..."
-          $existingTags = gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName --jq ".[].tagName" 2>$null
-          if ($null -eq $existingTags) { $existingTags = @() }
+          Write-Host "Fetching existing releases (including drafts)..."
+          $releases = gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName,isDraft | ConvertFrom-Json
+          $existingTags = @()
+          if ($null -ne $releases) {
+            $existingTags = @($releases | ForEach-Object { $_.tagName })
+          }
 
-          $tag = "v$version"
+          function Test-VersionExists($v) {
+            return ($existingTags -contains "v$v") -or ($existingTags -contains "$v")
+          }
 
-          if ($existingTags -contains $tag) {
-            Write-Host "Release $tag already exists. Auto-bumping to next available version..."
+          if (Test-VersionExists $version) {
+            Write-Host "Release for $version already exists. Auto-bumping..."
 
             $parts = $version.Split('.')
             $major = [int]$parts[0]
@@ -160,28 +163,57 @@ jobs:
             do {
               $patch++
               $newVersion = "$major.$minor.$patch"
-              $tag = "v$newVersion"
-            } while ($existingTags -contains $tag)
+            } while (Test-VersionExists $newVersion)
 
-            Write-Host "Next available version: $newVersion ($tag)"
+            Write-Host "Next available version: $newVersion"
 
             npm version $newVersion --no-git-tag-version --allow-same-version
 
             Write-Host "package.json updated to $newVersion for this build."
           } else {
-            Write-Host "Release $tag does not exist. Continuing with version $version."
+            Write-Host "No existing release for $version. Continuing."
           }
 
           $finalVersion = node -p "require('./package.json').version"
           Write-Host ""
           Write-Host "Final build version: $finalVersion"
 
-          # IMPORTANT: gh commands non-zero exit code chhod dete hain
-          # jo pwsh step ko fail kar deta hai. Reset karo.
           $global:LASTEXITCODE = 0
 
       # ==========================================
-      # 7. BUILD + PUBLISH TO GITHUB
+      # 7. CLEAN CONFLICTING DRAFTS
+      # ==========================================
+      # Agar isi version ka koi purana DRAFT release pada hai
+      # (partial/failed upload wala), to delete kar do taake
+      # electron-builder ekdum clean release banaye aur assets
+      # do drafts mein split na hon. Sirf DRAFTS delete hote hain,
+      # published releases kabhi nahi.
+      - name: Clean conflicting draft releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tagsToClean = @("v$version", "$version")
+
+          $releases = gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName,isDraft | ConvertFrom-Json
+          $drafts = @()
+          if ($null -ne $releases) {
+            $drafts = @($releases | Where-Object { $_.isDraft -eq $true } | ForEach-Object { $_.tagName })
+          }
+
+          foreach ($d in $drafts) {
+            if ($tagsToClean -contains $d) {
+              Write-Host "Deleting conflicting draft release: $d"
+              gh release delete $d --repo "${{ github.repository }}" --yes --cleanup-tag
+            }
+          }
+
+          Write-Host "Draft cleanup complete."
+          $global:LASTEXITCODE = 0
+
+      # ==========================================
+      # 8. BUILD + PUBLISH TO GITHUB
       # ==========================================
       - name: Build and publish Windows release
         shell: pwsh
@@ -197,7 +229,7 @@ jobs:
           npx electron-builder --win --publish always
 
       # ==========================================
-      # 8. VERIFY RELEASE ARTIFACTS
+      # 9. VERIFY RELEASE ARTIFACTS
       # ==========================================
       - name: Verify release artifacts
         shell: pwsh
@@ -250,7 +282,39 @@ jobs:
           }
 
       # ==========================================
-      # 9. FINAL STATUS
+      # 10. PUBLISH THE DRAFT (AUTO-UPDATER NEEDS THIS)
+      # ==========================================
+      # electron-builder by default DRAFT release banata hai.
+      # Draft releases auto-updater ko dikhai NAHI dete.
+      # Isliye build ke baad draft ko published mein convert karo.
+      - name: Publish release (remove draft status)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $found = $false
+
+          foreach ($t in @("v$version", "$version")) {
+            gh release view $t --repo "${{ github.repository }}" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Found release $t. Publishing (removing draft status)..."
+              gh release edit $t --repo "${{ github.repository }}" --draft=false
+              Write-Host "Release $t is now PUBLISHED."
+              $found = $true
+              break
+            }
+          }
+
+          if (-not $found) {
+            Write-Error "Release for version $version not found after build."
+            exit 1
+          }
+
+          $global:LASTEXITCODE = 0
+
+      # ==========================================
+      # 11. FINAL STATUS
       # ==========================================
       - name: Release completed
         shell: pwsh
@@ -261,4 +325,5 @@ jobs:
           Write-Host "=========================================="
           Write-Host "JARVIS RELEASE SUCCESSFUL"
           Write-Host "Version: $version"
+          Write-Host "Status: PUBLISHED (auto-updater visible)"
           Write-Host "=========================================="
