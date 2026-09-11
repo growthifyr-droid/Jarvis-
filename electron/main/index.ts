@@ -22,7 +22,8 @@ if (!gotTheLock) {
 
 function createWindow(): BrowserWindow {
   const isDev = !app.isPackaged;
-  const preloadPath = path.join(__dirname, '../preload/index.js');
+  const preloadPath = path.join(__dirname, 'preload.cjs');
+  const iconPath = path.join(__dirname, '../build/icon.png');
 
   const win = new BrowserWindow({
     width: 1440,
@@ -33,7 +34,8 @@ function createWindow(): BrowserWindow {
     frame: false, // Custom borderless window matching reference screenshot
     titleBarStyle: 'hidden',
     backgroundColor: '#030708',
-    show: false, // Show gracefully once ready-to-show
+    show: false, // Show gracefully once ready-to-show to prevent blank flash
+    icon: iconPath,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -46,14 +48,58 @@ function createWindow(): BrowserWindow {
   const updater = UpdaterService.getInstance();
   updater.setMainWindow(win);
 
-  // Load URL: In dev load Vite dev server (or built files), in prod load index.html
+  // Load failure handling with retry and inline error page fallback
+  let hasRetried = false;
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error(`Page failed to load: ${errorDescription} (code: ${errorCode})`);
+    if (!hasRetried) {
+      hasRetried = true;
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.loadFile(path.join(__dirname, '../dist/index.html'));
+        }
+      }, 1000);
+    } else {
+      const errorHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>JARVIS</title>
+            <style>
+              body {
+                background-color: #030708;
+                color: #ef4444;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                text-align: center;
+              }
+              h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; color: #f87171; }
+              p { font-size: 14px; color: #94a3b8; }
+            </style>
+          </head>
+          <body>
+            <h1>Jarvis failed to load</h1>
+            <p>Please reinstall.</p>
+          </body>
+        </html>
+      `;
+      win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`);
+    }
+  });
+
+  // Load URL: In dev load Vite dev server, in prod load index.html from ../dist/index.html
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else if (isDev && !app.isPackaged) {
-    // If running in dev without env, default to standard local Vite port
     win.loadURL('http://localhost:3000');
   } else {
-    win.loadFile(path.join(__dirname, '../../dist/index.html'));
+    win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   win.once('ready-to-show', () => {
