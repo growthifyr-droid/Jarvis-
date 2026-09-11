@@ -56,32 +56,7 @@ jobs:
             exit 1
           }
 
-          Write-Host "Application version: $version"
-
-      - name: Check for existing release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = node -p "require('./package.json').version"
-          $tag = "v$version"
-
-          $exists = $false
-          $res = gh api "repos/${{ github.repository }}/releases/tags/$tag" 2>$null
-          if ($LASTEXITCODE -eq 0 -and $res) {
-            $exists = $true
-          }
-
-          # Reset exit code
-          $global:LASTEXITCODE = 0
-
-          if ($exists) {
-            Write-Error "Release $tag already exists on GitHub. Please bump the version in package.json before releasing."
-            exit 1
-          }
-
-          Write-Host "Version validation passed: $tag is ready for build."
-          exit 0
+          Write-Host "Target Application Version: $version"
 
       - name: Build Windows installer
         shell: pwsh
@@ -95,7 +70,7 @@ jobs:
           $version = node -p "require('./package.json').version"
           $tag = "v$version"
 
-          Write-Host "Locating release assets..."
+          Write-Host "Locating release assets in ./release directory..."
           $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } | Select-Object -ExpandProperty FullName
 
           if (-not $files) {
@@ -103,8 +78,23 @@ jobs:
             exit 1
           }
 
-          Write-Host "Uploading release assets for $tag :"
+          Write-Host "Found artifacts to upload:"
           $files | ForEach-Object { Write-Host " - $_" }
 
-          gh release create $tag $files --title "JARVIS $tag" --generate-notes --target "${{ github.sha }}"
-          Write-Host "JARVIS $tag released successfully to GitHub!"
+          # Check if release tag already exists
+          $exists = $false
+          $res = gh release view $tag --repo "${{ github.repository }}" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $res) {
+            $exists = $true
+          }
+          $global:LASTEXITCODE = 0
+
+          if ($exists) {
+            Write-Host "Release $tag already exists on GitHub. Updating and overwriting release assets..."
+            gh release upload $tag $files --repo "${{ github.repository }}" --clobber
+            Write-Host "Existing release $tag updated successfully with new assets!"
+          } else {
+            Write-Host "Creating new GitHub release for $tag..."
+            gh release create $tag $files --repo "${{ github.repository }}" --title "JARVIS $tag" --generate-notes --target "${{ github.sha }}"
+            Write-Host "New release $tag published successfully to GitHub!"
+          }
