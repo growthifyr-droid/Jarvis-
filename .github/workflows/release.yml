@@ -30,12 +30,16 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
-          if (Test-Path "package-lock.json") {
-            Write-Host "Found package-lock.json, running npm ci..."
-            npm ci
-          } else {
-            Write-Host "package-lock.json not found, running npm install..."
-            npm install
+          Write-Host "Installing dependencies with optional native packages..."
+          npm install --include=optional
+          
+          # Ensure Windows Rollup native bindings are present for Vite build
+          try {
+            node -e "require('@rollup/rollup-win32-x64-msvc')"
+            Write-Host "Rollup Windows native bindings verified."
+          } catch {
+            Write-Host "Installing @rollup/rollup-win32-x64-msvc directly..."
+            npm install --no-save @rollup/rollup-win32-x64-msvc
           }
 
       - name: Validate package
